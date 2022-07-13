@@ -228,23 +228,17 @@ impl World {
         todo!()
     }
 
-    //pub fn query<'a, QUERY: QueryTrait>(&'a self) -> QUERY::Result<'a> {
-    //    self.try_query::<QUERY>().unwrap()
-    //}
+    pub fn query<'a, QUERY: QueryTrait>(&'a self) -> QUERY::Result<'a> {
+        self.try_query::<QUERY>().unwrap()
+    }
     //
-    //pub fn try_query<'a, QUERY: QueryTrait>(&'a self) -> Result<QUERY::Result<'a>, ECSError> {
-    //    QUERY::get_result(self)
-    //}
-
-    pub fn query_mut<'a, QUERY: MutQueryTrait>(&'a mut self) -> QUERY::Result<'a> {
-        self.try_query_mut::<QUERY>().unwrap()
+    pub fn try_query<'a, QUERY: QueryTrait>(&'a self) -> Result<QUERY::Result<'a>, ECSError> {
+        QUERY::get_result(self)
     }
 
     /// Faster than [query] because it can avoid exclusive borrowing checks.
-    pub fn try_query_mut<'a, QUERY: MutQueryTrait>(
-        &'a mut self,
-    ) -> Result<QUERY::Result<'a>, ECSError> {
-        QUERY::get_result_mut(self)
+    pub fn query_mut<'a, QUERY: MutQueryTrait>(&'a mut self) -> QUERY::Result<'a> {
+        QUERY::get_result_mut(self).unwrap()
     }
 }
 
