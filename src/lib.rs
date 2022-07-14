@@ -3,7 +3,6 @@
 use std::{any::TypeId, sync::RwLock};
 
 mod archetype_lookup;
-mod chained_iterator;
 mod entity_manager;
 mod queries;
 mod sparse_set;

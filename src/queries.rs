@@ -1,8 +1,8 @@
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{
-    archetype_lookup::Filter, chained_iterator::ChainedIterator, get_rwlock_from_channel,
-    get_vec_from_channel, Archetype, ArchetypeComponentChannel, ComponentId,
+    archetype_lookup::Filter, get_rwlock_from_channel, get_vec_from_channel, Archetype,
+    ArchetypeComponentChannel, ComponentId,
 };
 
 use super::{ComponentTrait, ECSError, World};
@@ -26,85 +26,79 @@ pub struct All<'a, PARAMETERS: QueryParametersTrait> {
     borrow: Vec<(ArchetypeInfo<'a>, PARAMETERS::ResultMut<'a>)>,
 }
 
-pub type QueryBorrowIter<'a, 'b, PARAMETERS> = ChainedIterator<
-    std::iter::Map<
-        std::slice::Iter<
-            'b,
-            (
-                ArchetypeInfo<'a>,
-                <PARAMETERS as QueryParametersTrait>::Result<'a>,
-            ),
-        >,
-        fn(
-            &'b (
-                ArchetypeInfo<'a>,
-                <PARAMETERS as QueryParametersTrait>::Result<'a>,
-            ),
-        )
-            -> <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait>::Iterator<'b>,
+// I am not a fan of these huge types.
+
+pub type QueryBorrowIter<'a, 'b, PARAMETERS> = std::iter::FlatMap<
+    std::slice::Iter<
+        'b,
+        (
+            ArchetypeInfo<'a>,
+            <PARAMETERS as QueryParametersTrait>::Result<'a>,
+        ),
     >,
+    <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait>::Iterator<'b>,
+    fn(
+        &'b (
+            ArchetypeInfo<'a>,
+            <PARAMETERS as QueryParametersTrait>::Result<'a>,
+        ),
+    )
+        -> <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait>::Iterator<'b>,
 >;
 
-pub type QueryBorrowIterMut<'a, 'b, PARAMETERS> = ChainedIterator<
-    std::iter::Map<
-        std::slice::IterMut<
-            'b,
-            (
-                ArchetypeInfo<'a>,
-                <PARAMETERS as QueryParametersTrait>::Result<'a>,
-            ),
-        >,
-        fn(
-            &'b mut (
-                ArchetypeInfo<'a>,
-                <PARAMETERS as QueryParametersTrait>::Result<'a>,
-            ),
-        )
-            -> <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait>::IteratorMut<
-            'b,
-        >,
+pub type QueryBorrowIterMut<'a, 'b, PARAMETERS> = std::iter::FlatMap<
+    std::slice::IterMut<
+        'b,
+        (
+            ArchetypeInfo<'a>,
+            <PARAMETERS as QueryParametersTrait>::Result<'a>,
+        ),
     >,
+    <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait>::IteratorMut<'b>,
+    fn(
+        &'b mut (
+            ArchetypeInfo<'a>,
+            <PARAMETERS as QueryParametersTrait>::Result<'a>,
+        ),
+    )
+        -> <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait>::IteratorMut<'b>,
 >;
 
-pub type QueryIter<'a, 'b, PARAMETERS> = ChainedIterator<
-    std::iter::Map<
-        std::slice::Iter<
-            'b,
-            (
-                ArchetypeInfo<'a>,
-                <PARAMETERS as QueryParametersTrait>::ResultMut<'a>,
-            ),
-        >,
-        fn(
-            &'b (
-                ArchetypeInfo,
-                <PARAMETERS as QueryParametersTrait>::ResultMut<'a>,
-            ),
-        )
-            -> <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait>::Iterator<
-            'b,
-        >,
+pub type QueryIter<'a, 'b, PARAMETERS> = std::iter::FlatMap<
+    std::slice::Iter<
+        'b,
+        (
+            ArchetypeInfo<'a>,
+            <PARAMETERS as QueryParametersTrait>::ResultMut<'a>,
+        ),
     >,
+    <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait>::Iterator<'b>,
+    fn(
+        &'b (
+            ArchetypeInfo,
+            <PARAMETERS as QueryParametersTrait>::ResultMut<'a>,
+        ),
+    )
+        -> <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait>::Iterator<'b>,
 >;
 
-pub type QueryIterMut<'a,'b,  PARAMETERS> = ChainedIterator<
-    std::iter::Map<
-        std::slice::IterMut<
-            'b,
-            (
-                ArchetypeInfo<'a>,
-                <PARAMETERS as QueryParametersTrait>::ResultMut<'a>,
-            ),
-        >,
-        fn(
-            &'b mut (
-                ArchetypeInfo,
-                <PARAMETERS as QueryParametersTrait>::ResultMut<'a>,
-            ),
-        )
-            -> <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait>::IteratorMut<
-            'b,
-        >,
+pub type QueryIterMut<'a, 'b, PARAMETERS> = std::iter::FlatMap<
+    std::slice::IterMut<
+        'b,
+        (
+            ArchetypeInfo<'a>,
+            <PARAMETERS as QueryParametersTrait>::ResultMut<'a>,
+        ),
+    >,
+    <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait>::IteratorMut<'b>,
+    fn(
+        &'b mut (
+            ArchetypeInfo,
+            <PARAMETERS as QueryParametersTrait>::ResultMut<'a>,
+        ),
+    )
+        -> <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait>::IteratorMut<
+        'b,
     >,
 >;
 
@@ -112,9 +106,7 @@ impl<'a, 'b, PARAMETERS: QueryParametersTrait> IntoIterator for &'b All<'a, PARA
     type Item = <QueryIter<'a, 'b, PARAMETERS> as Iterator>::Item;
     type IntoIter = QueryIter<'a, 'b, PARAMETERS>;
     fn into_iter(self) -> Self::IntoIter {
-        ChainedIterator::new(self.borrow.iter().map(|v| v.1.get_iterator()))
-
-        //self.iter()
+        self.borrow.iter().flat_map(|v| v.1.get_iterator())
     }
 }
 
@@ -122,7 +114,7 @@ impl<'a, 'b, PARAMETERS: QueryParametersTrait> IntoIterator for &'b mut All<'a, 
     type Item = <QueryIterMut<'a, 'b, PARAMETERS> as Iterator>::Item;
     type IntoIter = QueryIterMut<'a, 'b, PARAMETERS>;
     fn into_iter(self) -> Self::IntoIter {
-        ChainedIterator::new(self.borrow.iter_mut().map(|v| v.1.get_iterator_mut()))
+        self.borrow.iter_mut().flat_map(|v| v.1.get_iterator_mut())
     }
 }
 // The type of iterator returned is relatively complex.
@@ -146,7 +138,7 @@ impl<'a, 'b, PARAMETERS: QueryParametersTrait> IntoIterator for &'b AllBorrow<'a
     type Item = <QueryBorrowIter<'a, 'b, PARAMETERS> as Iterator>::Item;
     type IntoIter = QueryBorrowIter<'a, 'b, PARAMETERS>;
     fn into_iter(self) -> Self::IntoIter {
-        ChainedIterator::new(self.borrow.iter().map(|v| v.1.get_iterator()))
+        self.borrow.iter().flat_map(|v| v.1.get_iterator())
     }
 }
 
@@ -154,7 +146,7 @@ impl<'a, 'b, PARAMETERS: QueryParametersTrait> IntoIterator for &'b mut AllBorro
     type Item = <QueryBorrowIterMut<'a, 'b, PARAMETERS> as Iterator>::Item;
     type IntoIter = QueryBorrowIterMut<'a, 'b, PARAMETERS>;
     fn into_iter(self) -> Self::IntoIter {
-        ChainedIterator::new(self.borrow.iter_mut().map(|v| v.1.get_iterator_mut()))
+        self.borrow.iter_mut().flat_map(|v| v.1.get_iterator_mut())
     }
 }
 
