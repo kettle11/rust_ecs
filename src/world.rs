@@ -198,6 +198,7 @@ impl World {
             &mut self.entity_manager,
             entity_location.index_within_storage,
         );
+        self.entity_manager.despawn_entity(entity);
         Ok(())
     }
 
@@ -210,7 +211,7 @@ impl World {
         let archetype = &self.archetypes[entity_location.storage_index];
 
         // Todo: Merge the added [ComponentID]s with the existing [Archetype]'s IDs.
-        //  Then find  or create the new [Archetype] to migrate this [Entity] to.
+        // Then find or create the new [Archetype] to migrate this [Entity] to.
         todo!()
     }
 
@@ -219,7 +220,9 @@ impl World {
         entity: Entity,
     ) -> Result<COMPONENTS, ECSError> {
         let entity_location = self.entity_manager.get_entity_location(entity)?;
+
         // Todo: Remove the components and store them in the component bundle.
+        //  Then find or create the new [Archetype] to migrate this [Entity] to.
         todo!()
     }
 
