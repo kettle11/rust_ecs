@@ -4,10 +4,17 @@ use std::{any::TypeId, sync::RwLock};
 
 mod archetype_lookup;
 mod entity_manager;
+
+#[macro_use]
 mod queries;
+
+#[macro_use]
+mod multi_iterator;
+
 mod sparse_set;
 mod world;
 
+pub use multi_iterator::*;
 pub use queries::*;
 pub use world::*;
 
@@ -58,7 +65,6 @@ pub trait ComponentBundleTrait {
         self,
         f: impl FnOnce(&mut [(&mut dyn AnyComponentTrait, ComponentId)]),
     );
-    fn push_components_to_archetype(self, archetype: &mut Archetype);
     fn append_component_ids(&self, component_ids: &mut Vec<ComponentId>);
 }
 
@@ -69,10 +75,23 @@ impl<A: ComponentTrait> ComponentBundleTrait for A {
     ) {
         f(&mut [(&mut Some(self), A::component_id())])
     }
-    fn push_components_to_archetype(self, archetype: &mut Archetype) {
-        let channels = archetype.get_corresponding_channels([A::component_id()]);
-        get_vec_from_channel::<A>(&mut *archetype.channels[channels[0]].1).push(self);
+
+    fn append_component_ids(&self, component_ids: &mut Vec<ComponentId>) {
+        component_ids.push(A::component_id())
     }
+}
+
+impl<A: ComponentTrait, B: ComponentTrait> ComponentBundleTrait for (A, B) {
+    fn get_components_and_ids(
+        self,
+        f: impl FnOnce(&mut [(&mut dyn AnyComponentTrait, ComponentId)]),
+    ) {
+        f(&mut [
+            (&mut Some(self.0), A::component_id()),
+            (&mut Some(self.1), B::component_id()),
+        ])
+    }
+
     fn append_component_ids(&self, component_ids: &mut Vec<ComponentId>) {
         component_ids.push(A::component_id())
     }
@@ -91,3 +110,27 @@ impl<COMPONENT: ComponentTrait> AnyComponentTrait for Option<COMPONENT> {
         self
     }
 }
+macro_rules! tuple_impls {
+    ( $count: tt, $( ($index: tt, $tuple:ident) ),*) => {
+        // system_tuple_impls! { $count, $( ($index, $tuple) ),*}
+        // component_bundle_tuple_impls! { $count, $( ($index, $tuple) ),*}
+         multi_iterator_impl! { $count, $( ($index, $tuple) ),*}
+        // query_impls! { $count, $( ($index, $tuple) ),*}
+         query_iterator_impls! { $count, $( ($index, $tuple) ),*}
+        // singleton_impls! { $count, $( ($index, $tuple) ),*}
+    };
+}
+
+tuple_impls! {0,}
+tuple_impls! { 1, (0, A) }
+tuple_impls! { 2, (0, A), (1, B) }
+tuple_impls! { 3, (0, A), (1, B), (2, C) }
+tuple_impls! { 4, (0, A), (1, B), (2, C), (3, D)}
+tuple_impls! { 5, (0, A), (1, B), (2, C), (3, D), (4, E)}
+tuple_impls! { 6, (0, A), (1, B), (2, C), (3, D), (4, E), (5, F)}
+tuple_impls! { 7, (0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G)}
+tuple_impls! { 8, (0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G), (7, H)}
+tuple_impls! { 9, (0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G), (7, H), (8, I)}
+tuple_impls! { 10, (0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G), (7, H), (8, I), (9, J)}
+tuple_impls! { 11, (0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G), (7, H), (8, I), (9, J), (10, K)}
+tuple_impls! { 12, (0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G), (7, H), (8, I), (9, J), (10, K), (11, L)}

@@ -26,6 +26,10 @@ pub struct All<'a, PARAMETERS: QueryParametersTrait> {
     borrow: Vec<(ArchetypeInfo<'a>, PARAMETERS::ResultMut<'a>)>,
 }
 
+pub struct One<'a, PARAMETERS: QueryParametersTrait> {
+    borrow: (ArchetypeInfo<'a>, PARAMETERS::ResultMut<'a>),
+}
+
 // I am not a fan of these huge types.
 
 pub type QueryBorrowIter<'a, 'b, PARAMETERS> = std::iter::FlatMap<
@@ -36,14 +40,14 @@ pub type QueryBorrowIter<'a, 'b, PARAMETERS> = std::iter::FlatMap<
             <PARAMETERS as QueryParametersTrait>::Result<'a>,
         ),
     >,
-    <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait>::Iterator<'b>,
+    <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait<'b>>::Iterator,
     fn(
         &'b (
             ArchetypeInfo<'a>,
             <PARAMETERS as QueryParametersTrait>::Result<'a>,
         ),
     )
-        -> <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait>::Iterator<'b>,
+        -> <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait<'b>>::Iterator,
 >;
 
 pub type QueryBorrowIterMut<'a, 'b, PARAMETERS> = std::iter::FlatMap<
@@ -54,14 +58,14 @@ pub type QueryBorrowIterMut<'a, 'b, PARAMETERS> = std::iter::FlatMap<
             <PARAMETERS as QueryParametersTrait>::Result<'a>,
         ),
     >,
-    <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait>::IteratorMut<'b>,
+    <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait<'b>>::IteratorMut,
     fn(
         &'b mut (
             ArchetypeInfo<'a>,
             <PARAMETERS as QueryParametersTrait>::Result<'a>,
         ),
     )
-        -> <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait>::IteratorMut<'b>,
+        -> <<PARAMETERS as QueryParametersTrait>::Result<'a> as GetIteratorsTrait<'b>>::IteratorMut,
 >;
 
 pub type QueryIter<'a, 'b, PARAMETERS> = std::iter::FlatMap<
@@ -72,14 +76,14 @@ pub type QueryIter<'a, 'b, PARAMETERS> = std::iter::FlatMap<
             <PARAMETERS as QueryParametersTrait>::ResultMut<'a>,
         ),
     >,
-    <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait>::Iterator<'b>,
+    <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait<'b>>::Iterator,
     fn(
         &'b (
             ArchetypeInfo,
             <PARAMETERS as QueryParametersTrait>::ResultMut<'a>,
         ),
     )
-        -> <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait>::Iterator<'b>,
+        -> <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait<'b>>::Iterator,
 >;
 
 pub type QueryIterMut<'a, 'b, PARAMETERS> = std::iter::FlatMap<
@@ -90,16 +94,14 @@ pub type QueryIterMut<'a, 'b, PARAMETERS> = std::iter::FlatMap<
             <PARAMETERS as QueryParametersTrait>::ResultMut<'a>,
         ),
     >,
-    <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait>::IteratorMut<'b>,
+    <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait<'b>>::IteratorMut,
     fn(
         &'b mut (
             ArchetypeInfo,
             <PARAMETERS as QueryParametersTrait>::ResultMut<'a>,
         ),
     )
-        -> <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait>::IteratorMut<
-        'b,
-    >,
+        -> <<PARAMETERS as QueryParametersTrait>::ResultMut<'a> as GetIteratorsTrait<'b>>::IteratorMut,
 >;
 
 impl<'a, 'b, PARAMETERS: QueryParametersTrait> IntoIterator for &'b All<'a, PARAMETERS> {
@@ -167,8 +169,8 @@ impl<'a, PARAMETERS: QueryParametersTrait> All<'a, PARAMETERS> {
 }
 
 pub trait QueryParameterTrait {
-    type Result<'a>: GetIteratorsTrait;
-    type ResultMut<'a>: GetIteratorsTrait;
+    type Result<'a>: for<'b> GetIteratorsTrait<'b>;
+    type ResultMut<'a>: for<'b> GetIteratorsTrait<'b>;
     fn get_component_id() -> ComponentId;
     fn get_result<'a>(
         channel: &'a dyn ArchetypeComponentChannel,
@@ -221,8 +223,10 @@ impl<A: ComponentTrait> QueryParameterTrait for &mut A {
 }
 
 pub trait QueryParametersTrait {
-    type Result<'a>: GetIteratorsTrait;
-    type ResultMut<'a>: GetIteratorsTrait;
+    type Result<'a>: for<'b> GetIteratorsTrait<'b>;
+    type ResultMut<'a>: for<'b> GetIteratorsTrait<'b>;
+    const FILTER_COUNT: usize;
+
     fn get_filters(f: impl FnOnce(&[Filter]) -> Result<(), ECSError>) -> Result<(), ECSError>;
     fn get_result<'a>(
         archetype_channels: &'a Vec<(ComponentId, Box<dyn ArchetypeComponentChannel>)>,
@@ -237,6 +241,7 @@ pub trait QueryParametersTrait {
 impl<A: QueryParameterTrait> QueryParametersTrait for A {
     type Result<'a> = A::Result<'a>;
     type ResultMut<'a> = A::ResultMut<'a>;
+    const FILTER_COUNT: usize = 1;
 
     fn get_filters(f: impl FnOnce(&[Filter]) -> Result<(), ECSError>) -> Result<(), ECSError> {
         f(&[Filter {
@@ -258,6 +263,47 @@ impl<A: QueryParameterTrait> QueryParametersTrait for A {
     }
 }
 
+impl<A: QueryParameterTrait, B: QueryParameterTrait> QueryParametersTrait for (A, B) {
+    type Result<'a> = (A::Result<'a>, B::Result<'a>);
+    type ResultMut<'a> = (A::ResultMut<'a>, B::ResultMut<'a>);
+    const FILTER_COUNT: usize = 2;
+
+    fn get_filters(f: impl FnOnce(&[Filter]) -> Result<(), ECSError>) -> Result<(), ECSError> {
+        f(&[
+            Filter {
+                filter_type: crate::archetype_lookup::FilterType::With,
+                component_id: A::get_component_id(),
+            },
+            Filter {
+                filter_type: crate::archetype_lookup::FilterType::With,
+                component_id: B::get_component_id(),
+            },
+        ])
+    }
+    fn get_result<'a>(
+        archetype_channels: &'a Vec<(ComponentId, Box<dyn ArchetypeComponentChannel>)>,
+        matching_channels: &[Option<usize>],
+    ) -> Result<Self::Result<'a>, ECSError> {
+        Ok((
+            A::get_result(&*archetype_channels[matching_channels[0].unwrap()].1)?,
+            B::get_result(&*archetype_channels[matching_channels[1].unwrap()].1)?,
+        ))
+    }
+    fn get_result_mut<'a>(
+        archetype_channels: &'a mut Vec<(ComponentId, Box<dyn ArchetypeComponentChannel>)>,
+        matching_channels: &[Option<usize>],
+    ) -> Result<Self::ResultMut<'a>, ECSError> {
+        // How can both channels be indexed safely?
+        todo!()
+        /*
+        Ok((
+            A::get_result_mut(&mut *archetype_channels[matching_channels[0].unwrap()].1)?,
+            B::get_result_mut(&mut *archetype_channels[matching_channels[1].unwrap()].1)?,
+        ))
+        */
+    }
+}
+
 impl<PARAMETERS: QueryParametersTrait> QueryTrait for All<'_, PARAMETERS> {
     type Result<'a> = AllBorrow<'a, PARAMETERS>;
 
@@ -275,7 +321,8 @@ impl<PARAMETERS: QueryParametersTrait> QueryTrait for All<'_, PARAMETERS> {
             let mut archetypes: &[Archetype] = archetypes;
 
             PARAMETERS::get_filters(move |filters| {
-                let iter = archetype_lookup.matching_archetype_iter::<1>(filters);
+                // Todo: I need to figure out how to get rid of this 8. It's incorrect.
+                let iter = archetype_lookup.matching_archetype_iter::<8>(filters);
                 for (archetype_index, matching_channels) in iter {
                     // We must use splitting borrows to appease the borrow checker.
                     // Fortunately the indices returned by `matching_archetype_iter` increase.
@@ -347,66 +394,180 @@ impl<PARAMETERS: QueryParametersTrait> MutQueryTrait for All<'_, PARAMETERS> {
     }
 }
 
-pub trait GetIteratorsTrait {
-    type Iterator<'a>: Iterator
-    where
-        Self: 'a;
-    type IteratorMut<'a>: Iterator
-    where
-        Self: 'a;
-    fn get_iterator<'a>(&'a self) -> Self::Iterator<'a>;
-    fn get_iterator_mut<'a>(&'a mut self) -> Self::IteratorMut<'a>;
-    // fn get_component<'a>(&'a self, index: usize) -> <Self::Iterator<'a> as Iterator>::Item;
-    // fn get_component_mut<'a>(
-    //     &'a mut self,
-    //     index: usize,
-    // ) -> <Self::IteratorMut<'a> as Iterator>::Item;
-}
+impl<PARAMETERS: QueryParametersTrait> MutQueryTrait for One<'_, PARAMETERS> {
+    type Result<'a> = One<'a, PARAMETERS>;
 
-impl<'b, T: ComponentTrait> GetIteratorsTrait for &'b Vec<T> {
-    type Iterator<'a> = std::slice::Iter<'a, T> where Self: 'a;
-    type IteratorMut<'a> = std::slice::Iter<'a, T> where Self: 'a;
+    fn get_result_mut<'a>(world: &'a mut World) -> Result<Self::Result<'a>, ECSError> {
+        // I'd like to figure out how to avoid this `Vec::new()`
+        // But probably it can't be done without unsafe.
 
-    fn get_iterator<'a>(&'a self) -> Self::Iterator<'a> {
-        self.iter()
-    }
-    fn get_iterator_mut<'a>(&'a mut self) -> Self::IteratorMut<'a> {
-        self.iter()
-    }
-}
+        let mut borrow = Err(ECSError::NoMatchingComponent);
+        let World {
+            archetypes,
+            archetype_lookup,
+            ..
+        } = world;
+        {
+            let borrow = &mut borrow;
+            let mut archetypes: &mut [Archetype] = archetypes;
 
-impl<'b, T: ComponentTrait> GetIteratorsTrait for &'b mut Vec<T> {
-    type Iterator<'a> = std::slice::Iter<'a, T> where Self: 'a;
-    type IteratorMut<'a> = std::slice::IterMut<'a, T> where Self: 'a;
+            PARAMETERS::get_filters(move |filters| {
+                let iter = archetype_lookup.matching_archetype_iter::<1>(filters);
+                for (archetype_index, matching_channels) in iter {
+                    // We must use splitting borrows to appease the borrow checker.
+                    // Fortunately the indices returned by `matching_archetype_iter` increase.
+                    let (left, right) = archetypes.split_at_mut(archetype_index + 1);
+                    archetypes = right;
+                    let Archetype {
+                        channels,
+                        entity_indices,
+                    } = &mut left[0];
+                    let result = PARAMETERS::get_result_mut(channels, &matching_channels)?;
+                    if !entity_indices.is_empty() {
+                        *borrow = Ok((
+                            ArchetypeInfo {
+                                archetype_entities: entity_indices,
+                                archetype_index: archetype_index,
+                            },
+                            result,
+                        ));
+                        break;
+                    }
+                }
+                Ok(())
+            })?
+        }
 
-    fn get_iterator<'a>(&'a self) -> Self::Iterator<'a> {
-        self.iter()
-    }
-    fn get_iterator_mut<'a>(&'a mut self) -> Self::IteratorMut<'a> {
-        self.iter_mut()
-    }
-}
-
-impl<'b, T: ComponentTrait> GetIteratorsTrait for RwLockReadGuard<'b, Vec<T>> {
-    type Iterator<'a> = std::slice::Iter<'a, T> where Self: 'a;
-    type IteratorMut<'a> = std::slice::Iter<'a, T> where Self: 'a;
-
-    fn get_iterator<'a>(&'a self) -> Self::Iterator<'a> {
-        self.iter()
-    }
-    fn get_iterator_mut<'a>(&'a mut self) -> Self::IteratorMut<'a> {
-        self.iter()
+        Ok(One { borrow: borrow? })
     }
 }
 
-impl<'b, T: ComponentTrait> GetIteratorsTrait for RwLockWriteGuard<'b, Vec<T>> {
-    type Iterator<'a> = std::slice::Iter<'a, T> where Self: 'a;
-    type IteratorMut<'a> = std::slice::IterMut<'a, T> where Self: 'a;
+pub trait GetIteratorsTrait<'a> {
+    type Iterator: Iterator;
+    type IteratorMut: Iterator;
 
-    fn get_iterator<'a>(&'a self) -> Self::Iterator<'a> {
+    fn get_iterator(&'a self) -> Self::Iterator;
+    fn get_iterator_mut(&'a mut self) -> Self::IteratorMut;
+    fn get_component(&'a self, index: usize) -> <Self::Iterator as Iterator>::Item;
+    fn get_component_mut(&'a mut self, index: usize) -> <Self::IteratorMut as Iterator>::Item;
+}
+
+impl<'b, T: ComponentTrait> GetIteratorsTrait<'b> for &'_ Vec<T> {
+    type Iterator = std::slice::Iter<'b, T>;
+    type IteratorMut = std::slice::Iter<'b, T>;
+
+    fn get_iterator(&'b self) -> Self::Iterator {
         self.iter()
     }
-    fn get_iterator_mut<'a>(&'a mut self) -> Self::IteratorMut<'a> {
-        self.iter_mut()
+    fn get_iterator_mut(&'b mut self) -> Self::IteratorMut {
+        self.iter()
     }
+    fn get_component(&'b self, index: usize) -> <Self::Iterator as Iterator>::Item {
+        &self[index]
+    }
+    fn get_component_mut(&'b mut self, index: usize) -> <Self::IteratorMut as Iterator>::Item {
+        &self[index]
+    }
+}
+
+impl<'b, T: ComponentTrait> GetIteratorsTrait<'b> for &'_ mut Vec<T> {
+    type Iterator = std::slice::Iter<'b, T>;
+    type IteratorMut = std::slice::Iter<'b, T>;
+
+    fn get_iterator(&'b self) -> Self::Iterator {
+        self.iter()
+    }
+    fn get_iterator_mut(&'b mut self) -> Self::IteratorMut {
+        self.iter()
+    }
+    fn get_component(&'b self, index: usize) -> <Self::Iterator as Iterator>::Item {
+        &self[index]
+    }
+    fn get_component_mut(&'b mut self, index: usize) -> <Self::IteratorMut as Iterator>::Item {
+        &self[index]
+    }
+}
+
+impl<'b, T: ComponentTrait> GetIteratorsTrait<'b> for RwLockReadGuard<'_, Vec<T>> {
+    type Iterator = std::slice::Iter<'b, T>;
+    type IteratorMut = std::slice::Iter<'b, T>;
+
+    fn get_iterator(&'b self) -> Self::Iterator {
+        self.iter()
+    }
+    fn get_iterator_mut(&'b mut self) -> Self::IteratorMut {
+        self.iter()
+    }
+    fn get_component(&'b self, index: usize) -> <Self::Iterator as Iterator>::Item {
+        &self[index]
+    }
+    fn get_component_mut(&'b mut self, index: usize) -> <Self::IteratorMut as Iterator>::Item {
+        &self[index]
+    }
+}
+
+impl<'b, T: ComponentTrait> GetIteratorsTrait<'b> for RwLockWriteGuard<'_, Vec<T>> {
+    type Iterator = std::slice::Iter<'b, T>;
+    type IteratorMut = std::slice::Iter<'b, T>;
+
+    fn get_iterator(&'b self) -> Self::Iterator {
+        self.iter()
+    }
+    fn get_iterator_mut(&'b mut self) -> Self::IteratorMut {
+        self.iter()
+    }
+    fn get_component(&'b self, index: usize) -> <Self::Iterator as Iterator>::Item {
+        &self[index]
+    }
+    fn get_component_mut(&'b mut self, index: usize) -> <Self::IteratorMut as Iterator>::Item {
+        &self[index]
+    }
+}
+
+impl<'b, A: GetIteratorsTrait<'b>, B: GetIteratorsTrait<'b>> GetIteratorsTrait<'b> for (A, B) {
+    type Iterator = std::iter::Zip<A::Iterator, B::Iterator>;
+    type IteratorMut = std::iter::Zip<A::IteratorMut, B::IteratorMut>;
+
+    fn get_iterator(&'b self) -> Self::Iterator {
+        self.0.get_iterator().zip(self.1.get_iterator())
+    }
+    fn get_iterator_mut(&'b mut self) -> Self::IteratorMut {
+        self.0.get_iterator_mut().zip(self.1.get_iterator_mut())
+    }
+    fn get_component(&'b self, index: usize) -> <Self::Iterator as Iterator>::Item {
+        (self.0.get_component(index), self.1.get_component(index))
+    }
+    fn get_component_mut(&'b mut self, index: usize) -> <Self::IteratorMut as Iterator>::Item {
+        (
+            self.0.get_component_mut(index),
+            self.1.get_component_mut(index),
+        )
+    }
+}
+
+macro_rules! query_iterator_impls {
+    // These first two cases are implemented manually so skip them in this macro.
+    ($count: tt, ($index0: tt, $tuple0:ident)) => {};
+    ($count: tt, ($index0: tt, $tuple0:ident), ($index1: tt, $tuple1:ident)) => {};
+    ($count: tt, $( ($index: tt, $tuple:ident) ),* ) => {
+        #[allow(unused)]
+        impl<'a, $( $tuple: GetIteratorsTrait<'a>,)*> GetIteratorsTrait<'a> for ($( $tuple,)*) {
+            type Iterator = MultiIterator<($( $tuple::Iterator,)*)>;
+            type IteratorMut = MultiIterator<($( $tuple::IteratorMut,)*)>;
+            fn get_iterator(&'a self) -> Self::Iterator {
+                MultiIterator::<($( $tuple::Iterator,)*)>::new(($( self.$index.get_iterator(),)*))
+            }
+            fn get_iterator_mut(&'a mut self) -> Self::IteratorMut {
+                MultiIterator::<($( $tuple::IteratorMut,)*)>::new(($( self.$index.get_iterator_mut(),)*))
+            }
+            #[allow(clippy::unused_unit)]
+            fn get_component(&'a self, index: usize) -> <Self::Iterator as Iterator>::Item {
+                ($( self.$index.get_component(index),)*)
+            }
+            #[allow(clippy::unused_unit)]
+            fn get_component_mut(&'a mut self, index: usize) -> <Self::IteratorMut as Iterator>::Item {
+                ($( self.$index.get_component_mut(index),)*)
+            }
+        }
+    };
 }
