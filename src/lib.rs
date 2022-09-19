@@ -9,6 +9,9 @@ mod entity_manager;
 mod queries;
 
 #[macro_use]
+mod query_iterator;
+
+#[macro_use]
 mod multi_iterator;
 
 mod sparse_set;
@@ -16,6 +19,7 @@ mod world;
 
 pub use multi_iterator::*;
 pub use queries::*;
+pub use query_iterator::*;
 pub use world::*;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
